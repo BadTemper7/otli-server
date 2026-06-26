@@ -3,6 +3,9 @@ import User from '../models/User.js'
 import PreAdvice from '../models/PreAdvice.js'
 import Booking from '../models/Booking.js'
 import GateIn from '../models/GateIn.js'
+import Inventory from '../models/Inventory.js'
+import GateOut from '../models/GateOut.js'
+import Billing from '../models/Billing.js'
 import ApiLog from '../models/ApiLog.js'
 import AuditLog from '../models/AuditLog.js'
 import { ALL_ADMIN_MODULES, MODULES } from '../constants/modules.js'
@@ -17,7 +20,7 @@ const router = express.Router()
 router.use(protect, requireAdmin)
 
 router.get('/dashboard', requireModule(MODULES.DASHBOARD), asyncHandler(async (req, res) => {
-  const [pendingAccounts, pendingPreAdvices, pendingBookings, gateInToday, totalClients] = await Promise.all([
+  const [pendingAccounts, pendingPreAdvices, pendingBookings, gateInToday, totalClients, currentInventory, pendingGateOut, unpaidInvoices] = await Promise.all([
     User.countDocuments({ role: 'client', status: 'pending' }),
     PreAdvice.countDocuments({ status: 'pending' }),
     Booking.countDocuments({ status: 'pending' }),
@@ -27,7 +30,10 @@ router.get('/dashboard', requireModule(MODULES.DASHBOARD), asyncHandler(async (r
         $lte: new Date(new Date().setHours(23, 59, 59, 999))
       }
     }),
-    User.countDocuments({ role: 'client' })
+    User.countDocuments({ role: 'client' }),
+    Inventory.countDocuments({ status: 'in-yard' }),
+    GateOut.countDocuments({ status: 'pending' }),
+    Billing.countDocuments({ status: { $in: ['unpaid', 'for-verification'] } })
   ])
 
   const recentApprovals = await Promise.all([
@@ -44,7 +50,10 @@ router.get('/dashboard', requireModule(MODULES.DASHBOARD), asyncHandler(async (r
         pendingPreAdvices,
         pendingBookings,
         gateInToday,
-        totalClients
+        totalClients,
+        currentInventory,
+        pendingGateOut,
+        unpaidInvoices
       },
       recent: {
         accounts: recentApprovals[0],

@@ -1,6 +1,8 @@
 import express from 'express'
 import Booking from '../models/Booking.js'
 import GateIn from '../models/GateIn.js'
+import PreAdvice from '../models/PreAdvice.js'
+import Inventory from '../models/Inventory.js'
 import { MODULES } from '../constants/modules.js'
 import { protect, requireAdmin, requireModule } from '../middleware/auth.js'
 import { asyncHandler } from '../utils/asyncHandler.js'
@@ -57,6 +59,34 @@ router.post('/', asyncHandler(async (req, res) => {
     await booking.save()
   }
 
+  const normalizedContainerNo = String(gateIn.containerNo || '').trim().replace(/\s+/g, '').toUpperCase()
+  const preAdvice = normalizedContainerNo
+    ? await PreAdvice.findOne({ containerNo: normalizedContainerNo }).sort({ createdAt: -1 })
+    : null
+
+  if (normalizedContainerNo) {
+    await Inventory.findOneAndUpdate(
+      { containerNo: normalizedContainerNo },
+      {
+        containerNo: normalizedContainerNo,
+        client: booking?.client || preAdvice?.client,
+        companyName: gateIn.companyName || booking?.companyName || preAdvice?.companyName,
+        preAdvice: preAdvice?._id,
+        booking: booking?._id,
+        gateIn: gateIn._id,
+        shippingLine: preAdvice?.shippingLine,
+        containerSize: preAdvice?.containerSize,
+        containerType: preAdvice?.containerType,
+        containerStatus: preAdvice?.containerStatus,
+        status: 'in-yard',
+        gateInAt: gateIn.gateInAt || new Date(),
+        lastMoveAt: new Date(),
+        updatedBy: req.user._id
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    )
+  }
+
   await writeAuditLog({
     req,
     action: 'CREATE_GATE_IN',
@@ -67,6 +97,7 @@ router.post('/', asyncHandler(async (req, res) => {
     message: `Recorded gate in ${gateIn.gateInNo}`
   })
 
+  emitRealtime('inventory:updated', { containerNo: gateIn.containerNo }, ['admins'])
   emitRealtime('gateIn:created', { id: gateIn._id.toString(), bookingId: booking?._id?.toString(), clientId: gateIn.client?.toString() }, ['admins', gateIn.client ? `client:${gateIn.client.toString()}` : 'admins'])
   if (booking) {
     emitRealtime('booking:updated', { id: booking._id.toString(), clientId: booking.client?.toString(), status: booking.status }, ['admins', booking.client ? `client:${booking.client.toString()}` : 'admins'])

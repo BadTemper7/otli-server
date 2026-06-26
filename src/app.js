@@ -10,6 +10,11 @@ import adminRoutes from './routes/adminRoutes.js'
 import preAdviceRoutes from './routes/preAdviceRoutes.js'
 import bookingRoutes from './routes/bookingRoutes.js'
 import gateInRoutes from './routes/gateInRoutes.js'
+import inventoryRoutes from './routes/inventoryRoutes.js'
+import gateOutRoutes from './routes/gateOutRoutes.js'
+import billingRoutes from './routes/billingRoutes.js'
+import reportRoutes from './routes/reportRoutes.js'
+import validationRuleRoutes from './routes/validationRuleRoutes.js'
 import { apiLogger } from './utils/apiLogger.js'
 import { notFound, errorHandler } from './middleware/errorHandler.js'
 
@@ -57,6 +62,11 @@ export const createApp = () => {
   app.use('/api/pre-advices', preAdviceRoutes)
   app.use('/api/bookings', bookingRoutes)
   app.use('/api/gate-ins', gateInRoutes)
+  app.use('/api/inventory', inventoryRoutes)
+  app.use('/api/gate-outs', gateOutRoutes)
+  app.use('/api/billing', billingRoutes)
+  app.use('/api/reports', reportRoutes)
+  app.use('/api/validation-rules', validationRuleRoutes)
 
   app.use(notFound)
   app.use(errorHandler)

@@ -2,8 +2,39 @@ import dotenv from 'dotenv'
 import { connectDB } from '../config/db.js'
 import User from '../models/User.js'
 import { ALL_ADMIN_MODULES } from '../constants/modules.js'
+import { ContainerOwnershipRule, SystemSetting } from '../models/ValidationRule.js'
 
 dotenv.config()
+
+
+const seedValidationDefaults = async (actorId) => {
+  const ownership = String(process.env.CONTAINER_OWNERSHIP_PREFIXES || 'MSCU=MSC,MAEU=MAERSK,ONEY=ONE')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+
+  for (const item of ownership) {
+    const [prefix, ownerName] = item.split('=').map((part) => String(part || '').trim())
+    if (prefix && ownerName) {
+      await ContainerOwnershipRule.findOneAndUpdate(
+        { prefix: prefix.toUpperCase().slice(0, 4) },
+        { prefix: prefix.toUpperCase().slice(0, 4), ownerName, status: 'active', createdBy: actorId },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      )
+    }
+  }
+
+  await SystemSetting.findOneAndUpdate(
+    { key: 'defaultGateAppointmentWindow' },
+    {
+      key: 'defaultGateAppointmentWindow',
+      value: process.env.DEFAULT_GATE_APPOINTMENT_WINDOW || '08:00-17:00',
+      description: 'Default gate appointment time window generated after pre-advice submission.',
+      updatedBy: actorId
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  )
+}
 
 const run = async () => {
   await connectDB()
@@ -35,6 +66,7 @@ const run = async () => {
     existing.moduleAccess = ALL_ADMIN_MODULES
 
     await existing.save()
+    await seedValidationDefaults(existing._id)
 
     console.log(`Updated locked super admin login: ${existing.email}`)
     console.log('Super admin password was reset from SUPER_ADMIN_PASSWORD.')
@@ -50,6 +82,8 @@ const run = async () => {
     isLocked: true,
     moduleAccess: ALL_ADMIN_MODULES
   })
+
+  await seedValidationDefaults(superAdmin._id)
 
   console.log(`Created locked super admin: ${superAdmin.email}`)
   process.exit(0)
