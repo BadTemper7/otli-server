@@ -1,215 +1,105 @@
-import express from 'express'
-import User from '../models/User.js'
-import PreAdvice from '../models/PreAdvice.js'
-import Booking from '../models/Booking.js'
-import GateIn from '../models/GateIn.js'
-import Inventory from '../models/Inventory.js'
-import GateOut from '../models/GateOut.js'
-import Billing from '../models/Billing.js'
-import ApiLog from '../models/ApiLog.js'
-import AuditLog from '../models/AuditLog.js'
-import { ALL_ADMIN_MODULES, MODULES } from '../constants/modules.js'
-import { protect, requireAdmin, requireModule } from '../middleware/auth.js'
-import { asyncHandler } from '../utils/asyncHandler.js'
-import { cleanUser } from '../utils/cleanUser.js'
-import { writeAuditLog } from '../utils/audit.js'
-import { emitRealtime } from '../realtime/socket.js'
+import express from "express"
+import {
+  approveClient,
+  createAdminUser,
+  deleteUser,
+  getUserById,
+  listClients,
+  listUsers,
+  rejectClient,
+  updateUser,
+} from "../controllers/adminController.js"
+import {
+  createYardArea,
+  createYardBlock,
+  deleteYardArea,
+  deleteYardBlock,
+  getYardSummary,
+  listYardAreas,
+  listYardBlocks,
+  updateYardArea,
+  updateYardBlock,
+} from "../controllers/yardController.js"
+import {
+  completeGateIn,
+  confirmPreAdvice,
+  listAdminPreAdvices,
+  listGateInReadyPreAdvices,
+  rejectPreAdvice,
+} from "../controllers/preAdviceController.js"
+import { assignInventoryContainer, listInventoryContainers } from "../controllers/inventoryController.js"
+
+import {
+  approveBooking,
+  approveBookingGateIn,
+  approveBookingGateOut,
+  approveBookingPayment,
+  completeBookingGateOut,
+  getAdminBooking,
+  getBookingSummary,
+  getYardBlockSlots,
+  listAdminBookings,
+  markBookingStored,
+  relocateBooking,
+  rejectBooking,
+  rejectBookingPayment,
+} from "../controllers/bookingController.js"
+import { adminOnly, protect, requirePermission } from "../middleware/authMiddleware.js"
 
 const router = express.Router()
 
-router.use(protect, requireAdmin)
+router.use(protect, adminOnly)
 
-router.get('/dashboard', requireModule(MODULES.DASHBOARD), asyncHandler(async (req, res) => {
-  const [pendingAccounts, pendingPreAdvices, pendingBookings, gateInToday, totalClients, currentInventory, pendingGateOut, unpaidInvoices] = await Promise.all([
-    User.countDocuments({ role: 'client', status: 'pending' }),
-    PreAdvice.countDocuments({ status: 'pending' }),
-    Booking.countDocuments({ status: 'pending' }),
-    GateIn.countDocuments({
-      gateInAt: {
-        $gte: new Date(new Date().setHours(0, 0, 0, 0)),
-        $lte: new Date(new Date().setHours(23, 59, 59, 999))
-      }
-    }),
-    User.countDocuments({ role: 'client' }),
-    Inventory.countDocuments({ status: 'in-yard' }),
-    GateOut.countDocuments({ status: 'pending' }),
-    Billing.countDocuments({ status: { $in: ['unpaid', 'for-verification'] } })
-  ])
+router.get("/users", requirePermission("userManagement", "view"), listUsers)
+router.get("/client-registrations", requirePermission("clientVerification", "view"), listClients)
+router.get("/users/:id", requirePermission("userManagement", "view"), getUserById)
+router.post("/users", requirePermission("userManagement", "create"), createAdminUser)
+router.patch("/users/:id", requirePermission("userManagement", "edit"), updateUser)
+router.delete("/users/:id", requirePermission("userManagement", "delete"), deleteUser)
 
-  const recentApprovals = await Promise.all([
-    User.find({ role: 'client' }).sort({ updatedAt: -1 }).limit(5).select('-passwordHash'),
-    PreAdvice.find().sort({ updatedAt: -1 }).limit(5).populate('client', 'name email company.companyName'),
-    Booking.find().sort({ updatedAt: -1 }).limit(5).populate('client', 'name email company.companyName')
-  ])
+router.patch("/clients/:id/approve", requirePermission("clientVerification", "edit"), approveClient)
+router.patch("/clients/:id/reject", requirePermission("clientVerification", "edit"), rejectClient)
 
-  res.json({
-    success: true,
-    data: {
-      stats: {
-        pendingAccounts,
-        pendingPreAdvices,
-        pendingBookings,
-        gateInToday,
-        totalClients,
-        currentInventory,
-        pendingGateOut,
-        unpaidInvoices
-      },
-      recent: {
-        accounts: recentApprovals[0],
-        preAdvices: recentApprovals[1],
-        bookings: recentApprovals[2]
-      }
-    }
-  })
-}))
+router.get("/bookings/summary", requirePermission("bookings", "view"), getBookingSummary)
+router.get("/bookings", requirePermission("bookings", "view"), listAdminBookings)
+router.get("/bookings/yard/blocks/:blockId/slots", requirePermission("bookings", "view"), getYardBlockSlots)
+router.get("/bookings/:id", requirePermission("bookings", "view"), getAdminBooking)
+router.patch("/bookings/:id/approve", requirePermission("bookings", "edit"), approveBooking)
+router.patch("/bookings/:id/reject", requirePermission("bookings", "edit"), rejectBooking)
+router.patch("/bookings/:id/gate-in", requirePermission("gateIn", "edit"), approveBookingGateIn)
+router.patch("/bookings/:id/store", requirePermission("inventory", "edit"), markBookingStored)
+router.patch("/bookings/:id/relocate", requirePermission("inventory", "edit"), relocateBooking)
+router.patch("/bookings/:id/payment/approve", requirePermission("paymentVerification", "edit"), approveBookingPayment)
+router.patch("/bookings/:id/payment/reject", requirePermission("paymentVerification", "edit"), rejectBookingPayment)
+router.patch("/bookings/:id/gate-out/approve", requirePermission("gateOut", "edit"), approveBookingGateOut)
+router.patch("/bookings/:id/gate-out/complete", requirePermission("gateOut", "edit"), completeBookingGateOut)
 
-router.get('/accounts', requireModule(MODULES.ACCOUNT_APPROVAL), asyncHandler(async (req, res) => {
-  const { status = 'pending' } = req.query
-  const filter = { role: 'client' }
+router.get("/pre-advices", requirePermission("preAdvice", "view"), listAdminPreAdvices)
+router.patch("/pre-advices/:id/confirm", requirePermission("preAdvice", "edit"), confirmPreAdvice)
+router.patch("/pre-advices/:id/reject", requirePermission("preAdvice", "edit"), rejectPreAdvice)
 
-  if (status !== 'all') filter.status = status
+router.get("/gate-in/ready", requirePermission("gateIn", "view"), listGateInReadyPreAdvices)
+router.post("/gate-in/:preAdviceId/complete", requirePermission("gateIn", "create"), completeGateIn)
 
-  const accounts = await User.find(filter).sort({ createdAt: -1 }).select('-passwordHash')
+router.get("/yard/summary", requirePermission("yardSetup", "view"), getYardSummary)
+router.get("/yard/areas", requirePermission("yardSetup", "view"), listYardAreas)
+router.post("/yard/areas", requirePermission("yardSetup", "create"), createYardArea)
+router.patch("/yard/areas/:id", requirePermission("yardSetup", "edit"), updateYardArea)
+router.delete("/yard/areas/:id", requirePermission("yardSetup", "delete"), deleteYardArea)
 
-  res.json({ success: true, data: accounts })
-}))
+router.get("/yard/areas/:areaId/blocks", requirePermission("inventory", "view"), listYardBlocks)
+router.post("/yard/areas/:areaId/blocks", requirePermission("inventory", "create"), createYardBlock)
+router.patch("/yard/blocks/:id", requirePermission("inventory", "edit"), updateYardBlock)
+router.delete("/yard/blocks/:id", requirePermission("inventory", "delete"), deleteYardBlock)
 
-router.get('/accounts/:id', requireModule(MODULES.ACCOUNT_APPROVAL), asyncHandler(async (req, res) => {
-  const account = await User.findOne({ _id: req.params.id, role: 'client' }).select('-passwordHash')
-
-  if (!account) {
-    return res.status(404).json({ success: false, message: 'Client account not found.' })
-  }
-
-  res.json({ success: true, data: account })
-}))
-
-router.patch('/accounts/:id/approve', requireModule(MODULES.ACCOUNT_APPROVAL), asyncHandler(async (req, res) => {
-  const account = await User.findOne({ _id: req.params.id, role: 'client' })
-
-  if (!account) {
-    return res.status(404).json({ success: false, message: 'Client account not found.' })
-  }
-
-  const before = cleanUser(account)
-
-  account.status = 'verified'
-  account.approvedAt = new Date()
-  account.approvedBy = req.user._id
-  account.rejectionReason = undefined
-  await account.save()
-
-  await writeAuditLog({
-    req,
-    action: 'APPROVE_ACCOUNT',
-    module: MODULES.ACCOUNT_APPROVAL,
-    entityType: 'User',
-    entityId: account._id.toString(),
-    before,
-    after: cleanUser(account),
-    message: `Approved account ${account.email}`
-  })
-
-  emitRealtime('account:updated', { id: account._id.toString(), status: account.status }, ['admins', `client:${account._id.toString()}`])
-
-  res.json({ success: true, message: 'Client account approved.', data: cleanUser(account) })
-}))
-
-router.patch('/accounts/:id/reject', requireModule(MODULES.ACCOUNT_APPROVAL), asyncHandler(async (req, res) => {
-  const { reason = '' } = req.body
-  const account = await User.findOne({ _id: req.params.id, role: 'client' })
-
-  if (!account) {
-    return res.status(404).json({ success: false, message: 'Client account not found.' })
-  }
-
-  const before = cleanUser(account)
-
-  account.status = 'rejected'
-  account.rejectedAt = new Date()
-  account.rejectedBy = req.user._id
-  account.rejectionReason = reason
-  await account.save()
-
-  await writeAuditLog({
-    req,
-    action: 'REJECT_ACCOUNT',
-    module: MODULES.ACCOUNT_APPROVAL,
-    entityType: 'User',
-    entityId: account._id.toString(),
-    before,
-    after: cleanUser(account),
-    message: `Rejected account ${account.email}`
-  })
-
-  emitRealtime('account:updated', { id: account._id.toString(), status: account.status }, ['admins', `client:${account._id.toString()}`])
-
-  res.json({ success: true, message: 'Client account rejected.', data: cleanUser(account) })
-}))
-
-router.get('/users', requireModule(MODULES.USERS), asyncHandler(async (req, res) => {
-  const users = await User.find({ role: { $in: ['admin', 'super-admin'] } })
-    .sort({ role: -1, createdAt: -1 })
-    .select('-passwordHash')
-
-  res.json({ success: true, data: users, modules: ALL_ADMIN_MODULES })
-}))
-
-router.patch('/users/:id/module-access', requireModule(MODULES.USERS), asyncHandler(async (req, res) => {
-  if (req.user.role !== 'super-admin') {
-    return res.status(403).json({ success: false, message: 'Only super admin can change module access.' })
-  }
-
-  const { moduleAccess = [] } = req.body
-  const targetUser = await User.findById(req.params.id)
-
-  if (!targetUser) {
-    return res.status(404).json({ success: false, message: 'User not found.' })
-  }
-
-  if (targetUser.role === 'super-admin' || targetUser.isLocked) {
-    return res.status(403).json({ success: false, message: 'Super admin access is locked and cannot be changed.' })
-  }
-
-  if (targetUser.role !== 'admin') {
-    return res.status(400).json({ success: false, message: 'Module access can only be assigned to admin users.' })
-  }
-
-  const before = cleanUser(targetUser)
-  const allowedAccess = moduleAccess.filter((item) => ALL_ADMIN_MODULES.includes(item))
-
-  targetUser.moduleAccess = [...new Set(allowedAccess)]
-  await targetUser.save()
-
-  await writeAuditLog({
-    req,
-    action: 'UPDATE_MODULE_ACCESS',
-    module: MODULES.USERS,
-    entityType: 'User',
-    entityId: targetUser._id.toString(),
-    before,
-    after: cleanUser(targetUser),
-    message: `Updated module access for ${targetUser.email}`
-  })
-
-  emitRealtime('admin:moduleAccessUpdated', { id: targetUser._id.toString() }, ['admins'])
-
-  res.json({ success: true, message: 'Module access updated.', data: cleanUser(targetUser) })
-}))
-
-router.get('/api-logs', requireModule(MODULES.API_LOGS), asyncHandler(async (req, res) => {
-  const logs = await ApiLog.find().sort({ createdAt: -1 }).limit(200)
-  res.json({ success: true, data: logs })
-}))
-
-router.get('/audit-logs', requireModule(MODULES.AUDIT_LOGS), asyncHandler(async (req, res) => {
-  const logs = await AuditLog.find().sort({ createdAt: -1 }).limit(200).populate('actor', 'name email role')
-  res.json({ success: true, data: logs })
-}))
-
-router.get('/settings/modules', requireModule(MODULES.SETTINGS), asyncHandler(async (req, res) => {
-  res.json({ success: true, data: ALL_ADMIN_MODULES })
-}))
+router.get("/inventory/containers", requirePermission("inventory", "view"), listInventoryContainers)
+router.patch("/inventory/containers/:id/assign", requirePermission("inventory", "edit"), assignInventoryContainer)
+router.get("/inventory/summary", requirePermission("inventory", "view"), getYardSummary)
+router.get("/inventory/areas", requirePermission("inventory", "view"), listYardAreas)
+router.get("/inventory/areas/:areaId/blocks", requirePermission("inventory", "view"), listYardBlocks)
+router.get("/inventory/blocks/:blockId/slots", requirePermission("inventory", "view"), getYardBlockSlots)
+router.post("/inventory/areas/:areaId/blocks", requirePermission("inventory", "create"), createYardBlock)
+router.patch("/inventory/blocks/:id", requirePermission("inventory", "edit"), updateYardBlock)
+router.delete("/inventory/blocks/:id", requirePermission("inventory", "delete"), deleteYardBlock)
 
 export default router

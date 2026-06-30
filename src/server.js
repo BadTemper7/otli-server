@@ -1,32 +1,20 @@
-import http from 'http'
-import dotenv from 'dotenv'
-import { connectDB } from './config/db.js'
-import { configureCloudinary } from './config/cloudinary.js'
-import { createApp } from './app.js'
-import { initRealtime } from './realtime/socket.js'
+import dotenv from "dotenv"
+import http from "http"
 
 dotenv.config()
 
-const port = process.env.PORT || 5000
+const { default: app, getAllowedOrigins } = await import("./app.js")
+const { connectDB } = await import("./config/db.js")
+const { initSocket } = await import("./socket/socket.js")
 
-const startServer = async () => {
-  try {
-    await connectDB()
-    configureCloudinary()
+const PORT = process.env.PORT || 5000
 
-    const app = createApp()
-    const httpServer = http.createServer(app)
+await connectDB()
 
-    initRealtime(httpServer)
+const httpServer = http.createServer(app)
+initSocket(httpServer, getAllowedOrigins())
 
-    httpServer.listen(port, () => {
-      console.log(`OTLI server running on port ${port}`)
-      console.log('Socket.IO realtime server enabled')
-    })
-  } catch (error) {
-    console.error('Server failed to start:', error.message)
-    process.exit(1)
-  }
-}
-
-startServer()
+httpServer.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`)
+  console.log("Socket.IO real-time server enabled")
+})

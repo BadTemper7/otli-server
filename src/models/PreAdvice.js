@@ -1,127 +1,74 @@
-import mongoose from 'mongoose'
+import mongoose from "mongoose"
 
 const documentSchema = new mongoose.Schema(
   {
-    fileName: String,
-    mimeType: String,
-    size: Number,
-    publicId: String,
-    url: String,
-    resourceType: String,
-    uploadedAt: Date
-  },
-  { _id: false }
-)
-
-const validationItemSchema = new mongoose.Schema(
-  {
-    passed: { type: Boolean, default: true },
-    message: { type: String, trim: true }
-  },
-  { _id: false }
-)
-
-const gateAppointmentSchema = new mongoose.Schema(
-  {
-    appointmentNo: { type: String, trim: true },
-    appointmentDate: Date,
-    timeWindow: { type: String, trim: true },
-    status: {
-      type: String,
-      enum: ['scheduled', 'for-scheduling', 'completed', 'cancelled'],
-      default: 'scheduled'
-    },
-    remarks: { type: String, trim: true }
-  },
-  { _id: false }
-)
-
-const qrCodeSchema = new mongoose.Schema(
-  {
-    data: { type: String, trim: true },
-    imageDataUrl: String,
-    generatedAt: Date
+    type: { type: String, required: true },
+    label: { type: String, required: true },
+    fileName: { type: String, required: true },
+    url: { type: String, required: true },
+    secureUrl: { type: String, default: "" },
+    publicId: { type: String, required: true },
+    resourceType: { type: String, default: "auto" },
+    mimeType: { type: String, default: "" },
+    sizeBytes: { type: Number, default: 0 },
+    uploadedAt: { type: Date, default: Date.now },
   },
   { _id: false }
 )
 
 const preAdviceSchema = new mongoose.Schema(
   {
-    client: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    companyName: { type: String, required: true, trim: true },
-    referenceNo: { type: String, required: true, unique: true, trim: true },
+    client: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    preAdviceNumber: { type: String, required: true, unique: true, index: true },
 
-    containerNo: { type: String, required: true, trim: true, uppercase: true },
-    containerSize: {
-      type: String,
-      enum: ['20ft', '40ft', '45ft', '20FT', '40FT', '40HC', '45FT'],
-      default: '20ft'
-    },
+    containerNumber: { type: String, required: true, uppercase: true, trim: true, index: true },
+    containerSize: { type: Number, enum: [20, 40, 45], required: true },
     containerType: {
       type: String,
-      enum: ['Dry', 'Reefer', 'Tank', 'Open Top', 'Flat Rack', ''],
-      default: 'Dry'
+      enum: ["dry", "reefer", "tank", "open_top", "flat_rack"],
+      required: true,
     },
-    containerStatus: {
-      type: String,
-      enum: ['Empty', 'Laden', ''],
-      default: 'Empty'
-    },
-    shippingLine: { type: String, trim: true },
-    bookingNumber: { type: String, trim: true },
-    blNumber: { type: String, trim: true },
-    vesselVoyage: { type: String, trim: true },
-    cargoDescription: { type: String, trim: true },
-    dangerousGoodsClass: { type: String, trim: true },
-    weight: { type: Number, min: 0 },
-    arrivalDate: Date,
+    containerStatus: { type: String, enum: ["empty", "laden"], required: true },
+    shippingLine: { type: String, required: true, trim: true },
+    bookingNumber: { type: String, default: "", trim: true },
+    blNumber: { type: String, default: "", trim: true },
+    vesselVoyage: { type: String, default: "", trim: true },
+    cargoDescription: { type: String, default: "", trim: true },
+    dangerousGoodsClassification: { type: String, default: "", trim: true },
+    weight: { type: Number, default: 0 },
+    arrivalDate: { type: Date, required: true },
 
-    // Backward-compatible legacy fields used by older booking screens.
-    sealNo: { type: String, trim: true },
-    vesselName: { type: String, trim: true },
-    voyageNo: { type: String, trim: true },
-    expectedArrivalDate: Date,
-
-    validationResults: {
-      duplicateContainer: validationItemSchema,
-      blacklistedContainer: validationItemSchema,
-      outstandingCharges: validationItemSchema,
-      containerOwnership: validationItemSchema
-    },
-
-    documents: {
-      eir: documentSchema,
-      deliveryOrder: documentSchema,
-      bookingConfirmation: documentSchema,
-      packingList: documentSchema,
-      customsClearance: documentSchema,
-
-      // Backward-compatible document keys.
-      billOfLading: documentSchema,
-      commercialInvoice: documentSchema,
-      otherDocument: documentSchema
-    },
-
-    gateAppointment: gateAppointmentSchema,
-    qrCode: qrCodeSchema,
+    documents: { type: [documentSchema], default: [] },
 
     status: {
       type: String,
-      enum: ['pending', 'approved', 'rejected'],
-      default: 'pending'
+      enum: ["draft", "submitted", "pending_admin_confirmation", "rejected", "confirmed", "used_for_gate_in", "cancelled"],
+      default: "pending_admin_confirmation",
+      index: true,
     },
-    approvedAt: Date,
-    approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    rejectedAt: Date,
-    rejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    rejectionReason: String
+
+    rejectionReason: { type: String, default: "" },
+    submittedAt: { type: Date, default: Date.now },
+    confirmedAt: { type: Date, default: null },
+    rejectedAt: { type: Date, default: null },
+    gateAppointmentAt: { type: Date, default: null },
+    qrCodeValue: { type: String, default: "" },
+
+    plannedArea: { type: mongoose.Schema.Types.ObjectId, ref: "YardArea", default: null, index: true },
+    plannedBlock: { type: mongoose.Schema.Types.ObjectId, ref: "YardBlock", default: null, index: true },
+    plannedBay: { type: Number, default: 1 },
+    plannedRow: { type: Number, default: 1 },
+    plannedTier: { type: Number, default: 1 },
+    plannedSlotNumber: { type: String, default: "" },
+    plannedAt: { type: Date, default: null },
+    plannedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+
+    reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
   },
   { timestamps: true }
 )
 
-preAdviceSchema.index({ containerNo: 1, status: 1 })
-preAdviceSchema.index({ client: 1, createdAt: -1 })
+preAdviceSchema.index({ containerNumber: 1, status: 1 })
+preAdviceSchema.index({ plannedBlock: 1, plannedBay: 1, plannedRow: 1, plannedTier: 1, status: 1 })
 
-const PreAdvice = mongoose.model('PreAdvice', preAdviceSchema)
-
-export default PreAdvice
+export default mongoose.model("PreAdvice", preAdviceSchema)
